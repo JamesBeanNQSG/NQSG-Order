@@ -308,17 +308,30 @@ export default function App() {
   };
 
   const addMenuItem = async (item: Partial<MenuItem>) => {
-    const res = await fetch('/api/admin/menu/add', {
+  const tempId = Date.now();
+  const newItem = {
+    ...item,
+    id: tempId,
+    name: item.name || "Món mới",
+    price: item.price || 0,
+    category: item.category || "Món ăn",
+    image: item.image || "https://picsum.photos/seed/mi/400/300"
+  } as MenuItem;
+
+  // Chỉ cần 1 dòng setMenu này để hiện món lên màn hình ngay
+  setMenu(prev => [...prev, newItem]);
+
+  try {
+    await fetch('/api/admin/menu/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(item)
     });
-    if (res.ok) {
-      const added = await res.json();
-      setMenu(prev => [...prev, added.item]);
-    }
-  };
-
+  } catch (err) {
+    console.log("Đang chạy không server, món đã được thêm tạm thời.");
+  }
+};
+  
   const deleteMenuItem = async (id: number) => {
     const res = await fetch(`/api/admin/menu/${id}`, { method: 'DELETE' });
     if (res.ok) {
