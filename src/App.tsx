@@ -69,18 +69,22 @@ export default function App() {
   const [preferences, setPreferences] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch('/api/menu')
-      .then(res => res.json())
-      .then(data => setMenu(data))
-      .catch(err => console.error("Error loading menu:", err));
-
-    fetch('/api/config')
+        fetch('./metadata.json')
       .then(res => res.json())
       .then(data => {
-        setToppings(data.toppings);
-        setPreferences(data.preferences);
+        setMenu(data.menu || data);
       })
-      .catch(err => console.error("Error loading config:", err));
+      .catch(err => {
+        console.error("Không tải được menu từ file:", err);
+      });
+
+       fetch('/api/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.toppings) setToppings(data.toppings);
+        if (data.preferences) setPreferences(data.preferences);
+      })
+      .catch(err => console.log("Chưa có server config, dùng mặc định"));
   }, []);
 
   const categories = ['Món ăn', 'Nước', 'Chén', 'Phụ lục'];
