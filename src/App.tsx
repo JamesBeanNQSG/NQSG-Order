@@ -25,6 +25,8 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isOrdering, setIsOrdering] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
+  const [isMovingTable, setIsMovingTable] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   // Get current table's cart
   const cart = selectedTable ? (tableCarts[selectedTable] || []) : [];
@@ -143,6 +145,40 @@ export default function App() {
     updateTableCart(selectedTable, newCart);
   };
 
+  const cancelTable = (tableId: number) => {
+    updateTableCart(tableId, []);
+    setOrderedTables(prev => {
+      const next = new Set(prev);
+      next.delete(tableId);
+      return next;
+    });
+    setShowCancelConfirm(false);
+    setSelectedTable(null);
+  };
+
+  const moveTable = (fromId: number, toId: number) => {
+    if (fromId === toId) return;
+    
+    // Move cart
+    const cartToMove = tableCarts[fromId] || [];
+    const targetCart = tableCarts[toId] || [];
+    updateTableCart(toId, [...targetCart, ...cartToMove]);
+    updateTableCart(fromId, []);
+
+    // Move ordered status
+    setOrderedTables(prev => {
+      const next = new Set(prev);
+      if (next.has(fromId)) {
+        next.add(toId);
+        next.delete(fromId);
+      }
+      return next;
+    });
+
+    setIsMovingTable(false);
+    setSelectedTable(toId);
+  };
+
   const totalPrice = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const handleOrder = async () => {
@@ -179,26 +215,44 @@ export default function App() {
 
   const filteredMenu = menu.filter(item => item.category === selectedCategory);
 
-  // Table Selection View
-  if (selectedTable === null) {
+  // Table Selection View (Normal or Moving)
+  if (selectedTable === null || isMovingTable) {
     return (
       <div className="min-h-screen bg-[#FDFCFB] p-6">
         <header className="mb-8 text-center">
-          <h1 className="text-3xl font-display font-bold text-emerald-900">Nhân Quán Sài Gòn</h1>
-          <p className="text-emerald-600 font-medium mt-2">Vui lòng chọn bàn để bắt đầu</p>
+          <h1 className="text-3xl font-display font-bold text-emerald-900">
+            {isMovingTable ? 'Chọn bàn chuyển đến' : 'Nhân Quán Sài Gòn'}
+          </h1>
+          <p className="text-emerald-600 font-medium mt-2">
+            {isMovingTable 
+              ? `Đang dời từ Bàn ${selectedTable}...` 
+              : 'Vui lòng chọn bàn để bắt đầu'}
+          </p>
+          {isMovingTable && (
+            <button 
+              onClick={() => setIsMovingTable(false)}
+              className="mt-4 px-6 py-2 bg-gray-100 text-gray-600 rounded-full font-bold text-sm"
+            >
+              Hủy dời bàn
+            </button>
+          )}
         </header>
         
         <div className="grid grid-cols-3 sm:grid-cols-5 gap-4">
           {Array.from({ length: 30 }, (_, i) => i + 1).map(num => {
             const hasItems = tableCarts[num] && tableCarts[num].length > 0;
             const isOrdered = orderedTables.has(num);
+            const isSource = isMovingTable && num === selectedTable;
             
             let statusClasses = 'bg-white border-emerald-100 hover:border-emerald-500';
             let labelClasses = 'text-emerald-600';
             let numberClasses = 'text-emerald-900';
             let statusText = null;
 
-            if (hasItems) {
+            if (isSource) {
+              statusClasses = 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500 ring-offset-2';
+              statusText = <span className="text-[8px] font-bold text-emerald-500 mt-1">BÀN GỐC</span>;
+            } else if (hasItems) {
               statusClasses = 'bg-red-50 border-red-200 hover:border-red-500';
               labelClasses = 'text-red-600';
               numberClasses = 'text-red-900';
@@ -213,10 +267,17 @@ export default function App() {
             return (
               <motion.button
                 key={num}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setSelectedTable(num)}
-                className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center shadow-sm transition-all ${statusClasses}`}
+                disabled={isSource}
+                whileHover={!isSource ? { scale: 1.05 } : {}}
+                whileTap={!isSource ? { scale: 0.95 } : {}}
+                onClick={() => {
+                  if (isMovingTable) {
+                    moveTable(selectedTable!, num);
+                  } else {
+                    setSelectedTable(num);
+                  }
+                }}
+                className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center shadow-sm transition-all ${statusClasses} ${isSource ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <span className={`text-xs font-bold uppercase ${labelClasses}`}>Bàn</span>
                 <span className={`text-2xl font-display font-bold ${numberClasses}`}>{num}</span>
@@ -247,7 +308,20 @@ export default function App() {
           </button>
           <div>
             <h1 className="text-xl font-display font-bold text-emerald-900">Bàn số {selectedTable}</h1>
-            <p className="text-[10px] text-emerald-600 font-medium uppercase tracking-wider">Nhân Quán Sài Gòn</p>
+            <div className="flex gap-2 mt-1">
+              <button 
+                onClick={() => setIsMovingTable(true)}
+                className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded uppercase tracking-wider"
+              >
+                Dời bàn
+              </button>
+              <button 
+                onClick={() => setShowCancelConfirm(true)}
+                className="text-[9px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded uppercase tracking-wider"
+              >
+                Hủy bàn
+              </button>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -617,6 +691,47 @@ export default function App() {
               >
                 Tiếp tục gọi món
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Cancel Table Confirmation Modal */}
+      <AnimatePresence>
+        {showCancelConfirm && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowCancelConfirm(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white p-8 rounded-[32px] text-center relative z-10 max-w-sm w-full"
+            >
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">Hủy bàn {selectedTable}?</h2>
+              <p className="text-gray-500 mb-8 text-sm">Hành động này sẽ xóa toàn bộ món ăn đang chọn và đã báo bếp của bàn này. Bạn có chắc chắn?</p>
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold"
+                >
+                  Không, giữ lại
+                </button>
+                <button 
+                  onClick={() => cancelTable(selectedTable!)}
+                  className="py-4 bg-red-600 text-white rounded-2xl font-bold shadow-lg shadow-red-100"
+                >
+                  Có, hủy ngay
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
