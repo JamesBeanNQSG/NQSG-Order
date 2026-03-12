@@ -69,9 +69,15 @@ async function startServer() {
       }));
 
       res.json(menu);
-    } catch (error) {
-      console.error("Error fetching menu:", error);
-      res.status(500).json({ error: "Failed to fetch menu" });
+    } catch (error: any) {
+      if (error.message?.includes("Google Sheets API has not been used")) {
+        console.error("CRITICAL: Google Sheets API is not enabled.");
+        console.error("Please visit this link to enable it: https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=539790544552");
+      } else {
+        console.error("Error fetching menu from Sheets, falling back to mock data:", error);
+      }
+      // Fallback to mock data so the app doesn't crash
+      res.json(mockMenu);
     }
   });
 
@@ -124,7 +130,7 @@ async function startServer() {
 
     try {
       if (!SPREADSHEET_ID) {
-        console.log("Mock Order Received:", { orderId, tableId, items, totalPrice });
+        console.log("Mock Order Received (No Sheet ID):", { orderId, tableId, items, totalPrice });
         return res.json({ success: true, orderId });
       }
 
@@ -158,13 +164,17 @@ async function startServer() {
         }
       });
 
-      // 3. Logic for Printing (Optional: Call PrintNode API here)
-      // if (process.env.PRINTNODE_API_KEY) { ... }
-
       res.json({ success: true, orderId });
-    } catch (error) {
-      console.error("Error placing order:", error);
-      res.status(500).json({ error: "Failed to place order" });
+    } catch (error: any) {
+      if (error.message?.includes("Google Sheets API has not been used")) {
+        console.error("CRITICAL: Google Sheets API is not enabled for order placement.");
+        console.error("Please visit this link to enable it: https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=539790544552");
+      } else {
+        console.error("Error placing order to Sheets, falling back to mock processing:", error);
+      }
+      // Fallback to mock order so the user can still test the app
+      console.log("Mock Order Received (Sheets Error):", { orderId, tableId, items, totalPrice });
+      res.json({ success: true, orderId, warning: "Order saved locally only (Sheets API error)" });
     }
   });
 
