@@ -66,7 +66,7 @@ export default function App() {
   const [tempTopping, setTempTopping] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/menu')
+    fetch('./metadata.json')
       .then(res => res.json())
       .then(data => setMenu(data))
       .catch(err => console.error("Error loading menu:", err));
