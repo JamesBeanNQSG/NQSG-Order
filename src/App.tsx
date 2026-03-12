@@ -16,17 +16,39 @@ interface CartItem extends MenuItem {
   notes: string;
 }
 
+interface Order {
+  id: string;
+  tableId: number;
+  items: CartItem[];
+  totalPrice: number;
+  status: 'pending' | 'cooking' | 'completed';
+  timestamp: Date;
+}
+
 export default function App() {
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [tableCarts, setTableCarts] = useState<Record<number, CartItem[]>>({});
   const [orderedTables, setOrderedTables] = useState<Set<number>>(new Set());
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [view, setView] = useState<'service' | 'kitchen'>('service');
   const [selectedTable, setSelectedTable] = useState<number | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('Món ăn');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isOrdering, setIsOrdering] = useState(false);
-  const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
   const [isMovingTable, setIsMovingTable] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
+  const [printingBill, setPrintingBill] = useState<Order | null>(null);
+
+  // Auto-close printing bill
+  useEffect(() => {
+    if (printingBill) {
+      const timer = setTimeout(() => {
+        setPrintingBill(null);
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [printingBill]);
 
   // Get current table's cart
   const cart = selectedTable ? (tableCarts[selectedTable] || []) : [];
@@ -37,7 +59,7 @@ export default function App() {
   };
 
   // Selection states for "Món ăn"
-  const [selectionStep, setSelectionStep] = useState<'base' | 'style' | 'size' | 'topping' | 'preference'>('base');
+  const [selectionStep, setSelectionStep] = useState<'base' | 'style' | 'topping' | 'preference'>('base');
   const [tempBaseItem, setTempBaseItem] = useState<MenuItem | null>(null);
   const [tempStyle, setTempStyle] = useState<string | null>(null);
   const [tempSize, setTempSize] = useState<string | null>(null);
@@ -175,8 +197,31 @@ export default function App() {
       return next;
     });
 
+    // Move orders in kitchen/history
+    setOrders(prev => prev.map(order => 
+      order.tableId === fromId ? { ...order, tableId: toId } : order
+    ));
+
     setIsMovingTable(false);
-    setSelectedTable(toId);
+    setSelectedTable(null);
+  };
+
+  const handlePayment = (tableId: number) => {
+    // Clear orders for this table
+    setOrders(prev => prev.filter(order => order.tableId !== tableId));
+    
+    // Clear cart for this table
+    updateTableCart(tableId, []);
+    
+    // Remove from ordered tables set
+    setOrderedTables(prev => {
+      const next = new Set(prev);
+      next.delete(tableId);
+      return next;
+    });
+
+    // Return to table selection
+    setSelectedTable(null);
   };
 
   const totalPrice = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -201,10 +246,21 @@ export default function App() {
       });
       const data = await response.json();
       if (data.success) {
-        setOrderSuccess(data.orderId);
+        const newOrder: Order = {
+          id: data.orderId,
+          tableId: selectedTable,
+          items: [...cart],
+          totalPrice,
+          status: 'pending',
+          timestamp: new Date()
+        };
+        setOrders(prev => [...prev, newOrder]);
         updateTableCart(selectedTable, []);
         setOrderedTables(prev => new Set(prev).add(selectedTable));
         setIsCartOpen(false);
+        setSelectedTable(null);
+        setSelectionStep('base');
+        setTempBaseItem(null);
       }
     } catch (error) {
       alert("Có lỗi xảy ra khi đặt món. Vui lòng thử lại!");
@@ -215,33 +271,198 @@ export default function App() {
 
   const filteredMenu = menu.filter(item => item.category === selectedCategory);
 
+  const updateOrderStatus = (orderId: string, status: 'cooking' | 'completed') => {
+    setOrders(prev => prev.map(order => 
+      order.id === orderId ? { ...order, status } : order
+    ));
+    
+    if (status === 'cooking') {
+      const order = orders.find(o => o.id === orderId);
+      if (order) setPrintingBill(order);
+    }
+  };
+
+  // Kitchen View UI
+  if (view === 'kitchen') {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <header className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-display font-bold text-emerald-900">Giao diện Bếp</h1>
+            <p className="text-emerald-600 font-medium">Quản lý đơn hàng đang chờ</p>
+          </div>
+          <button 
+            onClick={() => setView('service')}
+            className="px-6 py-3 bg-white border-2 border-emerald-100 text-emerald-600 rounded-2xl font-bold shadow-sm"
+          >
+            Quay lại Phục vụ
+          </button>
+        </header>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {orders.filter(o => o.status !== 'completed').map(order => (
+            <motion.div 
+              layout
+              key={order.id}
+              className={`bg-white rounded-[32px] shadow-xl overflow-hidden border-2 ${
+                order.status === 'cooking' ? 'border-orange-200' : 'border-emerald-100'
+              }`}
+            >
+              <div className={`p-6 flex items-center justify-between ${
+                order.status === 'cooking' ? 'bg-orange-50' : 'bg-emerald-50'
+              }`}>
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider opacity-60">Bàn</span>
+                  <h3 className="text-3xl font-display font-bold text-gray-900">{order.tableId}</h3>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold block opacity-60">MÃ ĐƠN</span>
+                  <span className="font-mono font-bold text-emerald-700">{order.id}</span>
+                </div>
+              </div>
+              
+              <div className="p-6 space-y-4">
+                <div className="space-y-3">
+                  {order.items.map((item, i) => (
+                    <div key={i} className="flex justify-between items-start gap-4">
+                      <div className="flex-grow">
+                        <p className="font-bold text-gray-900 leading-tight">
+                          <span className="text-emerald-600 mr-2">{item.quantity}x</span>
+                          {item.name}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-4 border-t border-gray-100 flex gap-3">
+                  {order.status === 'pending' ? (
+                    <button 
+                      onClick={() => updateOrderStatus(order.id, 'cooking')}
+                      className="flex-grow bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100 active:scale-95 transition-transform"
+                    >
+                      BẮT ĐẦU LÀM
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => updateOrderStatus(order.id, 'completed')}
+                      className="flex-grow bg-orange-500 text-white py-4 rounded-2xl font-bold shadow-lg shadow-orange-100 active:scale-95 transition-transform"
+                    >
+                      HOÀN THÀNH
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          ))}
+          {orders.filter(o => o.status !== 'completed').length === 0 && (
+            <div className="col-span-full py-20 text-center text-gray-400">
+              <Utensils size={64} className="mx-auto mb-4 opacity-10" />
+              <p className="text-xl font-medium">Chưa có đơn hàng mới nào</p>
+            </div>
+          )}
+        </div>
+
+        {/* Simulated Bill Modal */}
+        <AnimatePresence>
+          {printingBill && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                onClick={() => setPrintingBill(null)}
+              />
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white p-6 rounded-lg shadow-2xl relative z-10 w-full max-w-[300px] font-mono text-sm border-t-[10px] border-emerald-600"
+              >
+                <div className="text-center mb-4 border-b border-dashed border-gray-300 pb-4">
+                  <h2 className="font-bold text-lg">NHÂN QUÁN SÀI GÒN</h2>
+                  <p className="text-[10px]">Đang chế biến...</p>
+                </div>
+                
+                <div className="flex justify-between mb-4">
+                  <span className="font-bold">BÀN: {printingBill.tableId}</span>
+                  <span>{new Date().toLocaleTimeString('vi-VN')}</span>
+                </div>
+
+                <div className="space-y-2 mb-6">
+                  {printingBill.items.map((item, i) => (
+                    <div key={i} className="flex justify-between items-start">
+                      <span className="flex-grow">{item.quantity}x {item.name}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="text-center pt-4 border-t border-dashed border-gray-300">
+                  <p className="text-[10px] opacity-60">Mã đơn: {printingBill.id}</p>
+                  <button 
+                    onClick={() => setPrintingBill(null)}
+                    className="mt-6 w-full bg-gray-900 text-white py-3 rounded-lg font-bold text-xs"
+                  >
+                    ĐÃ IN BILL
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
   // Table Selection View (Normal or Moving)
   if (selectedTable === null || isMovingTable) {
     return (
       <div className="min-h-screen bg-[#FDFCFB] p-6">
-        <header className="mb-8 text-center">
-          <h1 className="text-3xl font-display font-bold text-emerald-900">
-            {isMovingTable ? 'Chọn bàn chuyển đến' : 'Nhân Quán Sài Gòn'}
-          </h1>
-          <p className="text-emerald-600 font-medium mt-2">
-            {isMovingTable 
-              ? `Đang dời từ Bàn ${selectedTable}...` 
-              : 'Vui lòng chọn bàn để bắt đầu'}
-          </p>
-          {isMovingTable && (
+        <header className="mb-8 flex items-center justify-between">
+          <div className="text-left">
+            <h1 className="text-3xl font-display font-bold text-emerald-900">
+              {isMovingTable ? 'Chọn bàn chuyển đến' : 'Nhân Quán Sài Gòn'}
+            </h1>
+            <p className="text-emerald-600 font-medium mt-1">
+              {isMovingTable 
+                ? `Đang dời từ Bàn ${selectedTable}...` 
+                : 'Vui lòng chọn bàn để bắt đầu'}
+            </p>
+          </div>
+          {!isMovingTable && (
             <button 
-              onClick={() => setIsMovingTable(false)}
-              className="mt-4 px-6 py-2 bg-gray-100 text-gray-600 rounded-full font-bold text-sm"
+              onClick={() => setView('kitchen')}
+              className="p-4 bg-white border-2 border-emerald-100 text-emerald-600 rounded-2xl font-bold shadow-sm flex flex-col items-center gap-1 relative"
             >
-              Hủy dời bàn
+              <Utensils size={20} />
+              <span className="text-[10px] uppercase">Bếp</span>
+              {orders.filter(o => o.status !== 'completed').length > 0 && (
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">
+                  {orders.filter(o => o.status !== 'completed').length}
+                </span>
+              )}
             </button>
           )}
         </header>
         
+        {isMovingTable && (
+          <div className="mb-8 text-center">
+            <button 
+              onClick={() => setIsMovingTable(false)}
+              className="px-6 py-2 bg-gray-100 text-gray-600 rounded-full font-bold text-sm"
+            >
+              Hủy dời bàn
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 sm:grid-cols-5 gap-4">
           {Array.from({ length: 30 }, (_, i) => i + 1).map(num => {
             const hasItems = tableCarts[num] && tableCarts[num].length > 0;
-            const isOrdered = orderedTables.has(num);
+            const tableOrders = orders.filter(o => o.tableId === num);
+            const isPending = tableOrders.some(o => o.status === 'pending' || o.status === 'cooking');
+            const isServed = tableOrders.some(o => o.status === 'completed') && !isPending;
             const isSource = isMovingTable && num === selectedTable;
             
             let statusClasses = 'bg-white border-emerald-100 hover:border-emerald-500';
@@ -257,11 +478,16 @@ export default function App() {
               labelClasses = 'text-red-600';
               numberClasses = 'text-red-900';
               statusText = <span className="text-[8px] font-bold text-red-500 mt-1 animate-pulse">ĐANG CHỌN</span>;
-            } else if (isOrdered) {
+            } else if (isPending) {
               statusClasses = 'bg-blue-50 border-blue-200 hover:border-blue-500';
               labelClasses = 'text-blue-600';
               numberClasses = 'text-blue-900';
               statusText = <span className="text-[8px] font-bold text-blue-500 mt-1">ĐÃ BÁO BẾP</span>;
+            } else if (isServed) {
+              statusClasses = 'bg-emerald-50 border-emerald-200 hover:border-emerald-500';
+              labelClasses = 'text-emerald-600';
+              numberClasses = 'text-emerald-900';
+              statusText = <span className="text-[8px] font-bold text-emerald-600 mt-1">ĐÃ RA MÓN</span>;
             }
 
             return (
@@ -307,17 +533,17 @@ export default function App() {
             <ChevronRight className="rotate-180" size={20} />
           </button>
           <div>
-            <h1 className="text-xl font-display font-bold text-emerald-900">Bàn số {selectedTable}</h1>
-            <div className="flex gap-2 mt-1">
+            <h1 className="text-xl font-display font-bold text-emerald-900 leading-none">Bàn số {selectedTable}</h1>
+            <div className="flex gap-3 mt-2">
               <button 
                 onClick={() => setIsMovingTable(true)}
-                className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded uppercase tracking-wider"
+                className="text-[13px] font-bold text-blue-600 bg-blue-50 px-4 py-2 rounded-xl uppercase tracking-wider shadow-sm active:scale-95 transition-transform"
               >
                 Dời bàn
               </button>
               <button 
                 onClick={() => setShowCancelConfirm(true)}
-                className="text-[9px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded uppercase tracking-wider"
+                className="text-[13px] font-bold text-red-600 bg-red-50 px-4 py-2 rounded-xl uppercase tracking-wider shadow-sm active:scale-95 transition-transform"
               >
                 Hủy bàn
               </button>
@@ -353,6 +579,57 @@ export default function App() {
         ))}
       </div>
 
+      {/* Order History for Waiter */}
+      {selectedTable && orders.some(o => o.tableId === selectedTable) && (
+        <div className="px-4 py-2 bg-emerald-50/50 border-b border-emerald-100">
+          <details className="group">
+            <summary className="flex items-center justify-between cursor-pointer py-2">
+              <div className="flex items-center gap-2">
+                <Utensils size={16} className="text-emerald-600" />
+                <span className="text-sm font-bold text-emerald-900">Lịch sử đã gọi</span>
+                <span className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full">
+                  {orders.filter(o => o.tableId === selectedTable).reduce((acc, o) => acc + o.items.length, 0)} món
+                </span>
+              </div>
+              <ChevronRight size={16} className="text-emerald-400 group-open:rotate-90 transition-transform" />
+            </summary>
+            <div className="pt-2 pb-4 space-y-3">
+              {orders.filter(o => o.tableId === selectedTable).map((order, idx) => (
+                <div key={order.id} className="bg-white p-3 rounded-xl border border-emerald-100 shadow-sm">
+                  <div className="flex justify-between items-center mb-2 pb-2 border-b border-emerald-50">
+                    <span className="text-[10px] font-mono font-bold text-emerald-600">#{order.id.slice(-4)}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      order.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {order.status === 'completed' ? 'Đã ra món' : 'Đang làm'}
+                    </span>
+                  </div>
+                  {order.items.map((item, i) => (
+                    <div key={i} className="flex justify-between text-xs py-1">
+                      <span className="text-gray-600">{item.quantity}x {item.name}</span>
+                      <span className="font-bold text-gray-900">{(item.price * item.quantity).toLocaleString('vi-VN')}đ</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div className="flex justify-between items-center pt-2 border-t border-emerald-200">
+                <span className="text-sm font-bold text-emerald-900">Tổng cộng đã gọi:</span>
+                <span className="text-lg font-display font-bold text-emerald-600">
+                  {orders.filter(o => o.tableId === selectedTable).reduce((acc, o) => acc + o.totalPrice, 0).toLocaleString('vi-VN')}đ
+                </span>
+              </div>
+              <button 
+                onClick={() => setShowPaymentConfirm(true)}
+                className="w-full mt-4 bg-emerald-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-100"
+              >
+                <Utensils size={18} />
+                Thanh toán & Trả bàn
+              </button>
+            </div>
+          </details>
+        </div>
+      )}
+
       {/* Menu Grid / Selection Steps */}
       <div className="px-4 py-4">
         {selectedCategory === 'Món ăn' ? (
@@ -366,6 +643,8 @@ export default function App() {
                     key={item.id}
                     onClick={() => {
                       setTempBaseItem(item);
+                      setTempStyle(null);
+                      setTempSize(null);
                       setSelectionStep('style');
                     }}
                     className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between cursor-pointer active:bg-emerald-50"
@@ -380,66 +659,81 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Style (Nước / Khô) */}
+            {/* Step 2: Style & Size Combined */}
             {selectionStep === 'style' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-4">
+              <div className="space-y-6">
+                <div className="flex items-center gap-2 mb-2">
                   <button 
-                    onClick={() => setSelectionStep('base')}
+                    onClick={() => {
+                      setTempStyle(null);
+                      setTempSize(null);
+                      setSelectionStep('base');
+                    }}
                     className="p-2 bg-emerald-50 text-emerald-600 rounded-lg flex items-center gap-1 text-xs font-bold"
                   >
                     <ChevronRight className="rotate-180" size={14} /> Quay Lại
                   </button>
-                  <h2 className="text-lg font-bold text-emerald-900">Chọn kiểu cho {tempBaseItem?.name}:</h2>
+                  <h2 className="text-lg font-bold text-emerald-900">Tùy chọn cho {tempBaseItem?.name}:</h2>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {styles.map(style => (
-                    <motion.button
-                      key={style}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        setTempStyle(style);
-                        setSelectionStep('size');
-                      }}
-                      className="bg-emerald-600 text-white p-8 rounded-2xl flex items-center justify-center font-bold text-xl shadow-lg shadow-emerald-100"
-                    >
-                      {style}
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-            )}
 
-            {/* Step 3: Size */}
-            {selectionStep === 'size' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <button 
-                    onClick={() => setSelectionStep('style')}
-                    className="p-2 bg-emerald-50 text-emerald-600 rounded-lg flex items-center gap-1 text-xs font-bold"
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">1. Chọn kiểu:</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {styles.map(style => (
+                      <motion.button
+                        key={style}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setTempStyle(style)}
+                        className={`p-4 rounded-2xl font-bold text-lg transition-all ${
+                          tempStyle === style 
+                            ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 ring-2 ring-emerald-600 ring-offset-2' 
+                            : 'bg-white text-emerald-600 border-2 border-emerald-100'
+                        }`}
+                      >
+                        {style}
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">2. Chọn kích cỡ:</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    {sizes.map(size => (
+                      <motion.button
+                        key={size.name}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {
+                          setTempSize(size.name);
+                          if (tempStyle) {
+                            setSelectionStep('topping');
+                          }
+                        }}
+                        className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all ${
+                          tempSize === size.name 
+                            ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 ring-2 ring-emerald-600 ring-offset-2' 
+                            : 'bg-white text-emerald-900 border-2 border-emerald-100'
+                        }`}
+                      >
+                        <span className="font-bold">{size.name}</span>
+                        <span className={`text-[10px] ${tempSize === size.name ? 'text-emerald-100' : 'text-emerald-500'}`}>
+                          {((tempBaseItem?.price || 0) + size.priceAdj).toLocaleString('vi-VN')}đ
+                        </span>
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+
+                {tempStyle && tempSize && (
+                  <motion.button
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => setSelectionStep('topping')}
+                    className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-200 mt-4"
                   >
-                    <ChevronRight className="rotate-180" size={14} /> Quay Lại
-                  </button>
-                  <h2 className="text-lg font-bold text-emerald-900">Chọn kích cỡ ({tempStyle}):</h2>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {sizes.map(size => (
-                    <motion.button
-                      key={size.name}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        setTempSize(size.name);
-                        setSelectionStep('topping');
-                      }}
-                      className="bg-white p-6 rounded-2xl border-2 border-emerald-100 flex flex-col items-center justify-center gap-2"
-                    >
-                      <span className="font-bold text-emerald-900">{size.name}</span>
-                      <span className="text-xs text-emerald-600">
-                        {((tempBaseItem?.price || 0) + size.priceAdj).toLocaleString('vi-VN')}đ
-                      </span>
-                    </motion.button>
-                  ))}
-                </div>
+                    Tiếp tục chọn Topping
+                  </motion.button>
+                )}
               </div>
             )}
 
@@ -448,7 +742,7 @@ export default function App() {
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
                   <button 
-                    onClick={() => setSelectionStep('size')}
+                    onClick={() => setSelectionStep('style')}
                     className="p-2 bg-emerald-50 text-emerald-600 rounded-lg flex items-center gap-1 text-xs font-bold"
                   >
                     <ChevronRight className="rotate-180" size={14} /> Quay Lại
@@ -666,31 +960,48 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Success Modal */}
+      {/* Payment Confirmation Modal */}
       <AnimatePresence>
-        {orderSuccess && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6">
+        {showPaymentConfirm && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-6">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="absolute inset-0 bg-emerald-900/40 backdrop-blur-md"
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowPaymentConfirm(false)}
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white p-8 rounded-[32px] text-center relative z-10 max-w-sm w-full"
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white p-8 rounded-[32px] text-center relative z-[71] max-w-sm w-full shadow-2xl"
             >
               <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Utensils size={40} />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Đặt món thành công!</h2>
-              <p className="text-gray-500 mb-6">Mã đơn: <span className="font-mono font-bold text-emerald-600">{orderSuccess}</span>. Bếp đang chuẩn bị món cho bạn.</p>
-              <button 
-                onClick={() => setOrderSuccess(null)}
-                className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold"
-              >
-                Tiếp tục gọi món
-              </button>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Xác nhận thanh toán</h2>
+              <p className="text-gray-500 mb-8">
+                Bạn có chắc chắn muốn thanh toán và trả bàn <span className="font-bold text-emerald-600">{selectedTable}</span>? 
+                Hành động này sẽ xóa toàn bộ lịch sử gọi món hiện tại của bàn.
+              </p>
+              <div className="space-y-3">
+                <button 
+                  onClick={() => {
+                    handlePayment(selectedTable!);
+                    setShowPaymentConfirm(false);
+                  }}
+                  className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100"
+                >
+                  Xác nhận thanh toán
+                </button>
+                <button 
+                  onClick={() => setShowPaymentConfirm(false)}
+                  className="w-full bg-gray-100 text-gray-600 py-4 rounded-2xl font-bold"
+                >
+                  Hủy
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
