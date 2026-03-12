@@ -23,23 +23,31 @@ async function startServer() {
   const sheets = google.sheets({ version: 'v4', auth });
   const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID;
 
+  // In-memory store for mock data
+  let mockMenu = [
+    { id: 1, name: "Hủ Tiếu", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/hutieu/400/300", description: "Hủ tiếu Nam Vang truyền thống." },
+    { id: 2, name: "Hủ Tiếu Mì", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/hutieumi/400/300", description: "Sự kết hợp giữa hủ tiếu và mì trứng." },
+    { id: 3, name: "Mì", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/mi/400/300", description: "Mì trứng tươi ngon." },
+    { id: 4, name: "Sủi Cảo", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/suicao/400/300", description: "Sủi cảo nhân tôm thịt đậm đà." },
+    { id: 10, name: "Coca Cola", price: 15000, category: "Nước", image: "https://picsum.photos/seed/coke/400/300", description: "Nước ngọt có gas." },
+    { id: 20, name: "Chén thêm", price: 0, category: "Chén", image: "https://picsum.photos/seed/bowl/400/300", description: "Yêu cầu thêm chén sạch." },
+    { id: 21, name: "Muỗng đũa thêm", price: 0, category: "Chén", image: "https://picsum.photos/seed/spoon/400/300", description: "Yêu cầu thêm muỗng đũa." },
+    { id: 30, name: "Khăn Lạnh", price: 3000, category: "Phụ lục", image: "https://picsum.photos/seed/towel/400/300", description: "Khăn lạnh cao cấp." },
+    { id: 31, name: "Trà Đá", price: 2000, category: "Phụ lục", image: "https://picsum.photos/seed/tea/400/300", description: "Trà đá mát lạnh." },
+    { id: 32, name: "Nước Suối", price: 10000, category: "Phụ lục", image: "https://picsum.photos/seed/water/400/300", description: "Nước khoáng tinh khiết." },
+    { id: 33, name: "Trứng chần", price: 5000, category: "Phụ lục", image: "https://picsum.photos/seed/egg/400/300", description: "Trứng gà chần nước sôi." },
+  ];
+
+  let mockConfig = {
+    toppings: ['Thập Cẩm', 'Tôm Tim Trứng', 'Hải Sản', 'Không Gan', 'Không Nạc', 'Không Lòng'],
+    preferences: ['Bình thường', 'Trụi', 'Không Hành Phi', 'Không Tỏi Phi', 'Không Hành Lá']
+  };
+
   // API: Get Menu
   app.get("/api/menu", async (req, res) => {
     try {
-      // Mock data if no Google Sheets configured yet
       if (!SPREADSHEET_ID) {
-        return res.json([
-          { id: 1, name: "Hủ Tiếu", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/hutieu/400/300", description: "Hủ tiếu Nam Vang truyền thống." },
-          { id: 2, name: "Hủ Tiếu Mì", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/hutieumi/400/300", description: "Sự kết hợp giữa hủ tiếu và mì trứng." },
-          { id: 3, name: "Mì", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/mi/400/300", description: "Mì trứng tươi ngon." },
-          { id: 4, name: "Sủi Cảo", price: 95000, category: "Món ăn", image: "https://picsum.photos/seed/suicao/400/300", description: "Sủi cảo nhân tôm thịt đậm đà." },
-          { id: 10, name: "Coca Cola", price: 15000, category: "Nước", image: "https://picsum.photos/seed/coke/400/300", description: "Nước ngọt có gas." },
-          { id: 11, name: "Nước Suối", price: 10000, category: "Nước", image: "https://picsum.photos/seed/water/400/300", description: "Nước khoáng tinh khiết." },
-          { id: 20, name: "Chén thêm", price: 0, category: "Chén", image: "https://picsum.photos/seed/bowl/400/300", description: "Yêu cầu thêm chén sạch." },
-          { id: 21, name: "Muỗng đũa thêm", price: 0, category: "Chén", image: "https://picsum.photos/seed/spoon/400/300", description: "Yêu cầu thêm muỗng đũa." },
-          { id: 30, name: "Khăn lạnh", price: 3000, category: "Phụ lục", image: "https://picsum.photos/seed/towel/400/300", description: "Khăn lạnh cao cấp." },
-          { id: 31, name: "Trứng chần", price: 5000, category: "Phụ lục", image: "https://picsum.photos/seed/egg/400/300", description: "Trứng gà chần nước sôi." },
-        ]);
+        return res.json(mockMenu);
       }
 
       const response = await sheets.spreadsheets.values.get({
@@ -65,6 +73,47 @@ async function startServer() {
       console.error("Error fetching menu:", error);
       res.status(500).json({ error: "Failed to fetch menu" });
     }
+  });
+
+  // API: Get Config
+  app.get("/api/config", (req, res) => {
+    res.json(mockConfig);
+  });
+
+  // API: Update Menu Item
+  app.post("/api/admin/menu/update", (req, res) => {
+    const item = req.body;
+    const index = mockMenu.findIndex(i => i.id === item.id);
+    if (index !== -1) {
+      mockMenu[index] = { ...mockMenu[index], ...item };
+      res.json({ success: true, item: mockMenu[index] });
+    } else {
+      res.status(404).json({ error: "Item not found" });
+    }
+  });
+
+  // API: Add Menu Item
+  app.post("/api/admin/menu/add", (req, res) => {
+    const item = req.body;
+    const newId = Math.max(...mockMenu.map(i => i.id as number), 0) + 1;
+    const newItem = { ...item, id: newId };
+    mockMenu.push(newItem);
+    res.json({ success: true, item: newItem });
+  });
+
+  // API: Delete Menu Item
+  app.delete("/api/admin/menu/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    mockMenu = mockMenu.filter(i => i.id !== id);
+    res.json({ success: true });
+  });
+
+  // API: Update Config
+  app.post("/api/admin/config/update", (req, res) => {
+    const { toppings, preferences } = req.body;
+    if (toppings) mockConfig.toppings = toppings;
+    if (preferences) mockConfig.preferences = preferences;
+    res.json({ success: true, config: mockConfig });
   });
 
   // API: Place Order

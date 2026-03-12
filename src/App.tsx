@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Plus, Minus, Trash2, Send, Utensils, Coffee, Pizza, ChevronRight, X } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Send, Utensils, Coffee, Pizza, ChevronRight, X, Settings, Save, Edit, PlusCircle, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface MenuItem {
@@ -30,7 +30,7 @@ export default function App() {
   const [tableCarts, setTableCarts] = useState<Record<number, CartItem[]>>({});
   const [orderedTables, setOrderedTables] = useState<Set<number>>(new Set());
   const [orders, setOrders] = useState<Order[]>([]);
-  const [view, setView] = useState<'service' | 'kitchen'>('service');
+  const [view, setView] = useState<'service' | 'kitchen' | 'admin'>('service');
   const [selectedTable, setSelectedTable] = useState<number | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('Món ăn');
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -65,11 +65,22 @@ export default function App() {
   const [tempSize, setTempSize] = useState<string | null>(null);
   const [tempTopping, setTempTopping] = useState<string | null>(null);
 
+  const [toppings, setToppings] = useState<string[]>([]);
+  const [preferences, setPreferences] = useState<string[]>([]);
+
   useEffect(() => {
-    fetch('./metadata.json')
+    fetch('/api/menu')
       .then(res => res.json())
       .then(data => setMenu(data))
       .catch(err => console.error("Error loading menu:", err));
+
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(data => {
+        setToppings(data.toppings);
+        setPreferences(data.preferences);
+      })
+      .catch(err => console.error("Error loading config:", err));
   }, []);
 
   const categories = ['Món ăn', 'Nước', 'Chén', 'Phụ lục'];
@@ -82,8 +93,6 @@ export default function App() {
   ];
 
   const styles = ['Nước', 'Khô'];
-  const toppings = ['Thập Cẩm', 'Tôm Tim Trứng', 'Không Gan', 'Không Nạc', 'Không Lòng'];
-  const preferences = ['Bình thường', 'Trụi', 'Không Hành Phi', 'Không Tỏi Phi', 'Không Hành Lá'];
 
   const addToCart = (item: MenuItem, size?: string, style?: string, topping?: string, preference?: string, finalPrice?: number) => {
     if (!selectedTable) return;
@@ -282,6 +291,229 @@ export default function App() {
     }
   };
 
+  const updateMenuItem = async (item: MenuItem) => {
+    const res = await fetch('/api/admin/menu/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item)
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setMenu(prev => prev.map(i => i.id === updated.item.id ? updated.item : i));
+    }
+  };
+
+  const addMenuItem = async (item: Partial<MenuItem>) => {
+    const res = await fetch('/api/admin/menu/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item)
+    });
+    if (res.ok) {
+      const added = await res.json();
+      setMenu(prev => [...prev, added.item]);
+    }
+  };
+
+  const deleteMenuItem = async (id: number) => {
+    const res = await fetch(`/api/admin/menu/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setMenu(prev => prev.filter(i => i.id !== id));
+    }
+  };
+
+  const updateConfig = async (newToppings?: string[], newPreferences?: string[]) => {
+    const res = await fetch('/api/admin/config/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toppings: newToppings, preferences: newPreferences })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setToppings(data.config.toppings);
+      setPreferences(data.config.preferences);
+    }
+  };
+
+  // Admin View UI
+  if (view === 'admin') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <header className="p-6 bg-emerald-900 text-white flex items-center justify-between shadow-lg">
+          <div>
+            <h1 className="text-3xl font-display font-bold">Quản trị Hệ thống</h1>
+            <p className="text-emerald-300 font-medium">Điều chỉnh thực đơn và cấu hình</p>
+          </div>
+          <button 
+            onClick={() => setView('service')}
+            className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-bold transition-colors flex items-center gap-2"
+          >
+            <ChevronRight className="rotate-180" size={20} />
+            Quay lại Phục vụ
+          </button>
+        </header>
+
+        <main className="flex-grow overflow-y-auto p-6 max-w-5xl mx-auto w-full space-y-12 pb-24">
+          {/* Menu Management */}
+          <section className="space-y-6">
+            <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+              <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                <Pizza size={28} className="text-emerald-600" />
+                Quản lý Thực đơn
+              </h3>
+              <button 
+                onClick={() => addMenuItem({ name: "Món mới", price: 0, category: "Nước", image: "https://picsum.photos/seed/new/400/300", description: "" })}
+                className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-emerald-100 active:scale-95 transition-transform"
+              >
+                <PlusCircle size={20} /> Thêm món mới
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-4">
+              {menu.map(item => (
+                <motion.div 
+                  layout
+                  key={item.id} 
+                  className="bg-white p-5 rounded-[24px] shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 items-start md:items-center"
+                >
+                  <div className="relative group shrink-0">
+                    <img src={item.image} className="w-24 h-24 rounded-2xl object-cover shadow-md" referrerPolicy="no-referrer" />
+                    <button 
+                      onClick={() => {
+                        const newUrl = prompt("Nhập URL hình ảnh mới:", item.image);
+                        if (newUrl) updateMenuItem({ ...item, image: newUrl });
+                      }}
+                      className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white rounded-2xl transition-opacity"
+                    >
+                      <ImageIcon size={24} />
+                    </button>
+                  </div>
+                  <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tên món ăn</label>
+                      <input 
+                        type="text" 
+                        value={item.name}
+                        onChange={(e) => updateMenuItem({ ...item, name: e.target.value })}
+                        className="w-full bg-gray-50 border-0 focus:ring-2 focus:ring-emerald-500 rounded-xl px-4 py-3 text-sm font-bold text-gray-900"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Giá bán (VNĐ)</label>
+                      <input 
+                        type="number" 
+                        value={item.price}
+                        onChange={(e) => updateMenuItem({ ...item, price: parseInt(e.target.value) || 0 })}
+                        className="w-full bg-gray-50 border-0 focus:ring-2 focus:ring-emerald-500 rounded-xl px-4 py-3 text-sm font-bold text-emerald-700"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Danh mục</label>
+                      <select 
+                        value={item.category}
+                        onChange={(e) => updateMenuItem({ ...item, category: e.target.value })}
+                        className="w-full bg-gray-50 border-0 focus:ring-2 focus:ring-emerald-500 rounded-xl px-4 py-3 text-sm font-medium text-gray-700"
+                      >
+                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      if (confirm(`Xóa món ${item.name}?`)) deleteMenuItem(item.id);
+                    }}
+                    className="p-4 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-colors shrink-0"
+                  >
+                    <Trash2 size={24} />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          </section>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Toppings Management */}
+            <section className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 space-y-6">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+                <PlusCircle size={24} className="text-emerald-600" />
+                Quản lý Toppings
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {toppings.map((t, i) => (
+                  <motion.div 
+                    layout
+                    key={i} 
+                    className="bg-emerald-50 text-emerald-700 pl-4 pr-2 py-2.5 rounded-xl flex items-center gap-2 font-bold text-sm border border-emerald-100"
+                  >
+                    <span>{t}</span>
+                    <button 
+                      onClick={() => updateConfig(toppings.filter((_, idx) => idx !== i))}
+                      className="p-1 hover:bg-emerald-100 rounded-lg text-emerald-400 hover:text-red-500 transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </motion.div>
+                ))}
+                <button 
+                  onClick={() => {
+                    const val = prompt("Nhập Topping mới:");
+                    if (val) updateConfig([...toppings, val]);
+                  }}
+                  className="px-4 py-2.5 border-2 border-dashed border-emerald-200 text-emerald-600 rounded-xl text-sm font-bold hover:bg-emerald-50 transition-colors"
+                >
+                  + Thêm Topping
+                </button>
+              </div>
+            </section>
+
+            {/* Preferences Management */}
+            <section className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 space-y-6">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center gap-3">
+                <Edit size={24} className="text-emerald-600" />
+                Quản lý Yêu cầu thêm
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {preferences.map((p, i) => (
+                  <motion.div 
+                    layout
+                    key={i} 
+                    className="bg-orange-50 text-orange-700 pl-4 pr-2 py-2.5 rounded-xl flex items-center gap-2 font-bold text-sm border border-orange-100"
+                  >
+                    <span>{p}</span>
+                    <button 
+                      onClick={() => updateConfig(undefined, preferences.filter((_, idx) => idx !== i))}
+                      className="p-1 hover:bg-orange-100 rounded-lg text-orange-400 hover:text-red-500 transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </motion.div>
+                ))}
+                <button 
+                  onClick={() => {
+                    const val = prompt("Nhập Yêu cầu mới:");
+                    if (val) updateConfig(undefined, [...preferences, val]);
+                  }}
+                  className="px-4 py-2.5 border-2 border-dashed border-orange-200 text-orange-600 rounded-xl text-sm font-bold hover:bg-orange-50 transition-colors"
+                >
+                  + Thêm Yêu cầu
+                </button>
+              </div>
+            </section>
+          </div>
+        </main>
+
+        <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-lg border-t border-gray-100 flex justify-center">
+          <button 
+            onClick={() => setView('service')}
+            className="w-full max-w-md bg-emerald-900 text-white py-4 rounded-2xl font-bold shadow-xl shadow-emerald-100 active:scale-95 transition-transform"
+          >
+            LƯU TẤT CẢ & QUAY LẠI
+          </button>
+        </footer>
+      </div>
+    );
+  }
+
   // Kitchen View UI
   if (view === 'kitchen') {
     return (
@@ -431,18 +663,27 @@ export default function App() {
             </p>
           </div>
           {!isMovingTable && (
-            <button 
-              onClick={() => setView('kitchen')}
-              className="p-4 bg-white border-2 border-emerald-100 text-emerald-600 rounded-2xl font-bold shadow-sm flex flex-col items-center gap-1 relative"
-            >
-              <Utensils size={20} />
-              <span className="text-[10px] uppercase">Bếp</span>
-              {orders.filter(o => o.status !== 'completed').length > 0 && (
-                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">
-                  {orders.filter(o => o.status !== 'completed').length}
-                </span>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setView('admin')}
+                className="p-4 bg-white border-2 border-emerald-100 text-emerald-600 rounded-2xl font-bold shadow-sm flex flex-col items-center gap-1"
+              >
+                <Settings size={20} />
+                <span className="text-[10px] uppercase">Admin</span>
+              </button>
+              <button 
+                onClick={() => setView('kitchen')}
+                className="p-4 bg-white border-2 border-emerald-100 text-emerald-600 rounded-2xl font-bold shadow-sm flex flex-col items-center gap-1 relative"
+              >
+                <Utensils size={20} />
+                <span className="text-[10px] uppercase">Bếp</span>
+                {orders.filter(o => o.status !== 'completed').length > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">
+                    {orders.filter(o => o.status !== 'completed').length}
+                  </span>
+                )}
+              </button>
+            </div>
           )}
         </header>
         
