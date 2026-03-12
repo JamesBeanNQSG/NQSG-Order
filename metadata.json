@@ -1,0 +1,5 @@
+{
+  "name": "Smart Restaurant Order System",
+  "description": "Hệ thống gọi món tại bàn tích hợp Google Sheets và in bếp tự động.",
+  "requestFramePermissions": []
+}
