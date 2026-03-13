@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Plus, Minus, Trash2, Send, Utensils, Coffee, Pizza, ChevronRight, X, Settings, Save, Edit, PlusCircle, Image as ImageIcon } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Send, Utensils, Coffee, Pizza, ChevronRight, X, Settings, Save, Edit, PlusCircle, Image as ImageIcon, Printer, Wifi, Activity, Lock, Unlock, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface MenuItem {
@@ -25,12 +25,22 @@ interface Order {
   timestamp: Date;
 }
 
+interface Printer {
+  id: string;
+  name: string;
+  ip: string;
+  port: number;
+  type: 'thermal' | 'laser';
+  location: 'kitchen' | 'counter';
+  status?: 'online' | 'offline';
+}
+
 export default function App() {
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [tableCarts, setTableCarts] = useState<Record<number, CartItem[]>>({});
   const [orderedTables, setOrderedTables] = useState<Set<number>>(new Set());
   const [orders, setOrders] = useState<Order[]>([]);
-  const [view, setView] = useState<'service' | 'kitchen' | 'admin'>('service');
+  const [view, setView] = useState<'service' | 'kitchen' | 'admin' | 'printer_config'>('service');
   const [selectedTable, setSelectedTable] = useState<number | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('Món ăn');
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -38,7 +48,13 @@ export default function App() {
   const [isMovingTable, setIsMovingTable] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<MenuItem | null>(null);
+  const [printerToDelete, setPrinterToDelete] = useState<Printer | null>(null);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [printingBill, setPrintingBill] = useState<Order | null>(null);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [showPasswordError, setShowPasswordError] = useState(false);
 
   // Auto-close printing bill
   useEffect(() => {
@@ -67,6 +83,7 @@ export default function App() {
 
   const [toppings, setToppings] = useState<string[]>([]);
   const [preferences, setPreferences] = useState<string[]>([]);
+  const [printers, setPrinters] = useState<Printer[]>([]);
 
   useEffect(() => {
     fetch('/api/menu')
@@ -85,6 +102,7 @@ export default function App() {
       .then(data => {
         setToppings(data.toppings);
         setPreferences(data.preferences);
+        setPrinters(data.printers || []);
       })
       .catch(err => console.error("Error loading config:", err));
   }, []);
@@ -243,7 +261,7 @@ export default function App() {
 
   const handleOrder = async () => {
     if (!selectedTable) {
-      alert("Vui lòng chọn bàn!");
+      setAlertMessage("Vui lòng chọn bàn!");
       return;
     }
     if (cart.length === 0) return;
@@ -278,7 +296,7 @@ export default function App() {
         setTempBaseItem(null);
       }
     } catch (error) {
-      alert("Có lỗi xảy ra khi đặt món. Vui lòng thử lại!");
+      setAlertMessage("Có lỗi xảy ra khi đặt món. Vui lòng thử lại!");
     } finally {
       setIsOrdering(false);
     }
@@ -328,34 +346,140 @@ export default function App() {
     }
   };
 
-  const updateConfig = async (newToppings?: string[], newPreferences?: string[]) => {
+  const updateConfig = async (newToppings?: string[], newPreferences?: string[], newPrinters?: Printer[]) => {
     const res = await fetch('/api/admin/config/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ toppings: newToppings, preferences: newPreferences })
+      body: JSON.stringify({ toppings: newToppings, preferences: newPreferences, printers: newPrinters })
     });
     if (res.ok) {
       const data = await res.json();
       setToppings(data.config.toppings);
       setPreferences(data.config.preferences);
+      setPrinters(data.config.printers || []);
     }
   };
+
+  // Admin View UI
+  if (view === 'admin' || view === 'printer_config') {
+    if (!isAdminAuthenticated) {
+      return (
+        <div className="min-h-screen bg-emerald-900 flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white w-full max-w-md rounded-[40px] shadow-2xl p-10 text-center space-y-8"
+          >
+            <div className="w-20 h-20 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
+              <Lock size={40} />
+            </div>
+            
+            <div className="space-y-2">
+              <h2 className="text-3xl font-display font-bold text-gray-900">Xác thực Admin</h2>
+              <p className="text-gray-500 font-medium">Vui lòng nhập mật khẩu 6 số để tiếp tục</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex justify-center gap-3">
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <div 
+                    key={i}
+                    className={`w-12 h-16 rounded-2xl border-2 flex items-center justify-center text-2xl font-bold transition-all ${
+                      adminPasswordInput.length > i 
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700' 
+                        : 'border-gray-100 bg-gray-50 text-gray-300'
+                    } ${showPasswordError ? 'border-red-500 animate-shake' : ''}`}
+                  >
+                    {adminPasswordInput.length > i ? '•' : ''}
+                  </div>
+                ))}
+              </div>
+
+              {showPasswordError && (
+                <p className="text-red-500 text-sm font-bold">Mật khẩu không chính xác!</p>
+              )}
+
+              <div className="grid grid-cols-3 gap-3 pt-4">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0, 'DEL'].map((num) => (
+                  <button
+                    key={num}
+                    onClick={() => {
+                      if (num === 'C') {
+                        setAdminPasswordInput('');
+                        setShowPasswordError(false);
+                      } else if (num === 'DEL') {
+                        setAdminPasswordInput(prev => prev.slice(0, -1));
+                        setShowPasswordError(false);
+                      } else if (adminPasswordInput.length < 6) {
+                        const newVal = adminPasswordInput + num;
+                        setAdminPasswordInput(newVal);
+                        setShowPasswordError(false);
+                        
+                        if (newVal.length === 6) {
+                          if (newVal === '888888') {
+                            setIsAdminAuthenticated(true);
+                            setAdminPasswordInput('');
+                          } else {
+                            setShowPasswordError(true);
+                            setTimeout(() => {
+                              setAdminPasswordInput('');
+                              setShowPasswordError(false);
+                            }, 1000);
+                          }
+                        }
+                      }
+                    }}
+                    className={`h-16 rounded-2xl font-bold text-xl transition-all active:scale-90 ${
+                      typeof num === 'number' 
+                        ? 'bg-gray-50 text-gray-900 hover:bg-gray-100' 
+                        : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                    }`}
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setView('service')}
+              className="w-full py-4 text-gray-400 font-bold hover:text-gray-600 transition-colors"
+            >
+              HỦY & QUAY LẠI
+            </button>
+          </motion.div>
+        </div>
+      );
+    }
+  }
 
   // Admin View UI
   if (view === 'admin') {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col">
         <header className="p-6 bg-emerald-900 text-white flex items-center justify-between shadow-lg">
-          <div>
-            <h1 className="text-3xl font-display font-bold">Quản trị Hệ thống</h1>
-            <p className="text-emerald-300 font-medium">Điều chỉnh thực đơn và cấu hình</p>
+          <div className="flex items-center gap-6">
+            <div>
+              <h1 className="text-3xl font-display font-bold">Quản trị Hệ thống</h1>
+              <p className="text-emerald-300 font-medium">Điều chỉnh thực đơn và cấu hình</p>
+            </div>
+            <button 
+              onClick={() => setView('printer_config')}
+              className="px-6 py-3 bg-emerald-700 hover:bg-emerald-600 text-white rounded-2xl font-bold transition-colors flex items-center gap-2 shadow-inner"
+            >
+              <Printer size={20} />
+              Cấu hình Máy in
+            </button>
           </div>
           <button 
-            onClick={() => setView('service')}
+            onClick={() => {
+              setView('service');
+              setIsAdminAuthenticated(false);
+            }}
             className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-bold transition-colors flex items-center gap-2"
           >
-            <ChevronRight className="rotate-180" size={20} />
-            Quay lại Phục vụ
+            <LogOut size={20} />
+            Đăng xuất
           </button>
         </header>
 
@@ -425,9 +549,7 @@ export default function App() {
                     </div>
                   </div>
                   <button 
-                    onClick={() => {
-                      if (confirm(`Xóa món ${item.name}?`)) deleteMenuItem(item.id);
-                    }}
+                    onClick={() => setItemToDelete(item)}
                     className="p-4 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-colors shrink-0"
                   >
                     <Trash2 size={24} />
@@ -510,10 +632,283 @@ export default function App() {
 
         <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-lg border-t border-gray-100 flex justify-center">
           <button 
-            onClick={() => setView('service')}
+            onClick={() => {
+              setView('service');
+              setIsAdminAuthenticated(false);
+            }}
             className="w-full max-w-md bg-emerald-900 text-white py-4 rounded-2xl font-bold shadow-xl shadow-emerald-100 active:scale-95 transition-transform"
           >
-            LƯU TẤT CẢ & QUAY LẠI
+            LƯU TẤT CẢ & ĐĂNG XUẤT
+          </button>
+        </footer>
+
+        {/* Delete Confirmation Modal */}
+        <AnimatePresence>
+          {itemToDelete && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                onClick={() => setItemToDelete(null)}
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white p-8 rounded-[32px] shadow-2xl relative z-10 w-full max-w-sm text-center space-y-6"
+              >
+                <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+                  <Trash2 size={40} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">Xác nhận xóa?</h3>
+                  <p className="text-gray-500 mt-2">Bạn có chắc chắn muốn xóa món <span className="font-bold text-gray-900">"{itemToDelete.name}"</span> không?</p>
+                </div>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => setItemToDelete(null)}
+                    className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-colors"
+                  >
+                    HỦY
+                  </button>
+                  <button 
+                    onClick={() => {
+                      deleteMenuItem(itemToDelete.id);
+                      setItemToDelete(null);
+                    }}
+                    className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-bold shadow-lg shadow-red-100 hover:bg-red-600 transition-colors"
+                  >
+                    XÓA NGAY
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Printer Delete Confirmation Modal */}
+        <AnimatePresence>
+          {printerToDelete && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                onClick={() => setPrinterToDelete(null)}
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white p-8 rounded-[32px] shadow-2xl relative z-10 w-full max-w-sm text-center space-y-6"
+              >
+                <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+                  <Printer size={40} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">Xóa máy in?</h3>
+                  <p className="text-gray-500 mt-2">Xóa cấu hình máy in <span className="font-bold text-gray-900">"{printerToDelete.name}"</span>?</p>
+                </div>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => setPrinterToDelete(null)}
+                    className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-colors"
+                  >
+                    HỦY
+                  </button>
+                  <button 
+                    onClick={() => {
+                      updateConfig(undefined, undefined, printers.filter(p => p.id !== printerToDelete.id));
+                      setPrinterToDelete(null);
+                    }}
+                    className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-bold shadow-lg shadow-red-100 hover:bg-red-600 transition-colors"
+                  >
+                    XÓA
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Alert Modal */}
+        <AnimatePresence>
+          {alertMessage && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+                onClick={() => setAlertMessage(null)}
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white p-8 rounded-[32px] shadow-2xl relative z-10 w-full max-w-sm text-center space-y-6"
+              >
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                  <Utensils size={32} />
+                </div>
+                <p className="text-lg font-bold text-gray-900">{alertMessage}</p>
+                <button 
+                  onClick={() => setAlertMessage(null)}
+                  className="w-full py-4 bg-emerald-900 text-white rounded-2xl font-bold shadow-lg shadow-emerald-100 transition-transform active:scale-95"
+                >
+                  ĐÓNG
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // Printer Config View UI
+  if (view === 'printer_config') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <header className="p-6 bg-emerald-900 text-white flex items-center justify-between shadow-lg">
+          <div>
+            <h1 className="text-3xl font-display font-bold">Cấu hình Máy in</h1>
+            <p className="text-emerald-300 font-medium">Quản lý máy in nhiệt qua IP</p>
+          </div>
+          <button 
+            onClick={() => setView('admin')}
+            className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-bold transition-colors flex items-center gap-2"
+          >
+            <ChevronRight className="rotate-180" size={20} />
+            Quay lại Admin
+          </button>
+        </header>
+
+        <main className="flex-grow overflow-y-auto p-6 max-w-5xl mx-auto w-full space-y-8 pb-24">
+          <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+            <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+              <Printer size={28} className="text-emerald-600" />
+              Danh sách Máy in
+            </h3>
+            <button 
+              onClick={() => {
+                const name = prompt("Tên máy in:");
+                const ip = prompt("Địa chỉ IP (ví dụ: 192.168.1.100):");
+                if (name && ip) {
+                  const newPrinter: Printer = {
+                    id: `p-${Date.now()}`,
+                    name,
+                    ip,
+                    port: 9100,
+                    type: 'thermal',
+                    location: 'kitchen'
+                  };
+                  updateConfig(undefined, undefined, [...printers, newPrinter]);
+                }
+              }}
+              className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-emerald-100 active:scale-95 transition-transform"
+            >
+              <PlusCircle size={20} /> Thêm máy in
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {printers.map(printer => (
+              <motion.div 
+                layout
+                key={printer.id}
+                className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100 space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl">
+                      <Printer size={28} />
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-bold text-gray-900">{printer.name}</h4>
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <Wifi size={14} />
+                        <span className="font-mono">{printer.ip}:{printer.port}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full ${
+                      printer.status === 'offline' ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'
+                    }`}>
+                      <Activity size={12} />
+                      {printer.status === 'offline' ? 'OFFLINE' : 'ONLINE'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Địa chỉ IP</label>
+                    <input 
+                      type="text" 
+                      value={printer.ip}
+                      onChange={(e) => {
+                        const newPrinters = printers.map(p => p.id === printer.id ? { ...p, ip: e.target.value } : p);
+                        setPrinters(newPrinters);
+                      }}
+                      onBlur={() => updateConfig(undefined, undefined, printers)}
+                      className="w-full bg-gray-50 border-0 focus:ring-2 focus:ring-emerald-500 rounded-xl px-4 py-3 text-sm font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Vị trí</label>
+                    <select 
+                      value={printer.location}
+                      onChange={(e) => {
+                        const newPrinters = printers.map(p => p.id === printer.id ? { ...p, location: e.target.value as any } : p);
+                        updateConfig(undefined, undefined, newPrinters);
+                      }}
+                      className="w-full bg-gray-50 border-0 focus:ring-2 focus:ring-emerald-500 rounded-xl px-4 py-3 text-sm font-bold"
+                    >
+                      <option value="kitchen">Bếp</option>
+                      <option value="counter">Quầy thu ngân</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => {
+                      setAlertMessage(`Đang gửi lệnh in thử đến ${printer.name} (${printer.ip})...`);
+                      setTimeout(() => setAlertMessage(`In thử thành công trên ${printer.name}!`), 1500);
+                    }}
+                    className="flex-grow py-3 bg-emerald-50 text-emerald-600 rounded-xl text-sm font-bold hover:bg-emerald-100 transition-colors"
+                  >
+                    In thử (Test)
+                  </button>
+                  <button 
+                    onClick={() => setPrinterToDelete(printer)}
+                    className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+            {printers.length === 0 && (
+              <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 rounded-[40px] bg-white">
+                <Printer size={64} className="mx-auto mb-4 text-gray-200" />
+                <p className="text-xl font-medium text-gray-400">Chưa có máy in nào được cấu hình</p>
+              </div>
+            )}
+          </div>
+        </main>
+
+        <footer className="fixed bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-lg border-t border-gray-100 flex justify-center">
+          <button 
+            onClick={() => setView('admin')}
+            className="w-full max-w-md bg-emerald-900 text-white py-4 rounded-2xl font-bold shadow-xl shadow-emerald-100 active:scale-95 transition-transform"
+          >
+            LƯU & QUAY LẠI ADMIN
           </button>
         </footer>
       </div>

@@ -40,7 +40,11 @@ async function startServer() {
 
   let mockConfig = {
     toppings: ['Thập Cẩm', 'Tôm Tim Trứng', 'Hải Sản', 'Không Gan', 'Không Nạc', 'Không Lòng'],
-    preferences: ['Bình thường', 'Trụi', 'Không Hành Phi', 'Không Tỏi Phi', 'Không Hành Lá']
+    preferences: ['Bình thường', 'Trụi', 'Không Hành Phi', 'Không Tỏi Phi', 'Không Hành Lá'],
+    printers: [
+      { id: 'p1', name: 'Máy in Bếp', ip: '192.168.1.100', port: 9100, type: 'thermal', location: 'kitchen' },
+      { id: 'p2', name: 'Máy in Quầy', ip: '192.168.1.101', port: 9100, type: 'thermal', location: 'counter' }
+    ]
   };
 
   // API: Get Menu
@@ -58,21 +62,26 @@ async function startServer() {
       const rows = response.data.values;
       if (!rows) return res.json([]);
 
-      const menu = rows.map(row => ({
-        id: row[0],
-        name: row[1],
-        price: parseInt(row[2]),
-        category: row[3],
-        image: row[4],
-        description: row[5],
-        available: row[6] === 'TRUE'
-      }));
+      const menu = rows
+        .map(row => ({
+          id: row[0],
+          name: row[1],
+          price: parseInt(row[2]),
+          category: row[3],
+          image: row[4],
+          description: row[5],
+          available: row[6] === 'TRUE'
+        }))
+        .filter(item => item.available !== false);
 
       res.json(menu);
     } catch (error: any) {
       if (error.message?.includes("Google Sheets API has not been used")) {
         console.error("CRITICAL: Google Sheets API is not enabled.");
         console.error("Please visit this link to enable it: https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=539790544552");
+      } else if (error.message?.includes("Unable to parse range")) {
+        console.error("CRITICAL: Sheet 'Menu' not found in your Google Spreadsheet.");
+        console.error("Please ensure your Google Sheet has a tab named 'Menu'.");
       } else {
         console.error("Error fetching menu from Sheets, falling back to mock data:", error);
       }
@@ -108,17 +117,51 @@ async function startServer() {
   });
 
   // API: Delete Menu Item
-  app.delete("/api/admin/menu/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    mockMenu = mockMenu.filter(i => i.id !== id);
-    res.json({ success: true });
+  app.delete("/api/admin/menu/:id", async (req, res) => {
+    const id = req.params.id;
+    
+    // Always update local mock for consistency
+    mockMenu = mockMenu.filter(i => i.id.toString() !== id);
+
+    try {
+      if (SPREADSHEET_ID) {
+        // 1. Find the row index
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: 'Menu!A:A',
+        });
+        
+        const rows = response.data.values;
+        if (rows) {
+          const rowIndex = rows.findIndex(row => row[0] === id);
+          if (rowIndex !== -1) {
+            // 2. Update column G (Available) to FALSE for that row
+            // Row index is 0-based, so row 1 is index 0. Sheet rows are 1-based.
+            const sheetRow = rowIndex + 1;
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: SPREADSHEET_ID,
+              range: `Menu!G${sheetRow}`,
+              valueInputOption: 'USER_ENTERED',
+              requestBody: {
+                values: [['FALSE']]
+              }
+            });
+          }
+        }
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting from Sheets:", error);
+      res.json({ success: true, warning: "Deleted locally but failed to update Sheets" });
+    }
   });
 
   // API: Update Config
   app.post("/api/admin/config/update", (req, res) => {
-    const { toppings, preferences } = req.body;
+    const { toppings, preferences, printers } = req.body;
     if (toppings) mockConfig.toppings = toppings;
     if (preferences) mockConfig.preferences = preferences;
+    if (printers) mockConfig.printers = printers;
     res.json({ success: true, config: mockConfig });
   });
 
@@ -169,6 +212,9 @@ async function startServer() {
       if (error.message?.includes("Google Sheets API has not been used")) {
         console.error("CRITICAL: Google Sheets API is not enabled for order placement.");
         console.error("Please visit this link to enable it: https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=539790544552");
+      } else if (error.message?.includes("Unable to parse range")) {
+        console.error("CRITICAL: Sheet 'Orders' or 'OrderDetails' not found in your Google Spreadsheet.");
+        console.error("Please ensure your Google Sheet has tabs named 'Orders' and 'OrderDetails'.");
       } else {
         console.error("Error placing order to Sheets, falling back to mock processing:", error);
       }
